@@ -5,13 +5,13 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleExecutable</key>
-    <string>Paste</string>
+    <string>MePaste</string>
     <key>CFBundleIdentifier</key>
-    <string>com.xurenhe.Paste</string>
+    <string>com.xurenhe.MePaste</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Paste</string>
+    <string>MePaste</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

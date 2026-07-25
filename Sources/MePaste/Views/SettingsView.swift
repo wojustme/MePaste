@@ -94,7 +94,7 @@ private struct LaunchAtLoginSettings: View {
                 .font(.caption)
                 .foregroundStyle(.red)
         } else {
-            Text("使用打包后的 Paste.app 时可注册为系统登录项。")
+            Text("使用打包后的 MePaste.app 时可注册为系统登录项。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

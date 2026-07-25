@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct PasteApp: App {
+struct MePasteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(
             systemSymbolName: "clipboard",
-            accessibilityDescription: "Paste"
+            accessibilityDescription: "MePaste"
         )
 
         let menu = NSMenu()
@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "退出 Paste",
+            title: "退出 MePaste",
             action: #selector(quit),
             keyEquivalent: "q"
         )

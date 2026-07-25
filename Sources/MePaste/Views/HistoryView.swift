@@ -21,7 +21,7 @@ struct HistoryView: View {
 
     private var header: some View {
         HStack {
-            Label("Paste", systemImage: "clipboard.fill")
+            Label("MePaste", systemImage: "clipboard.fill")
                 .font(.headline)
             Text("\(model.records.count) 条记录")
                 .font(.caption)

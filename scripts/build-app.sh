@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-APP_DIR="$BUILD_DIR/Paste.app"
+APP_DIR="$BUILD_DIR/MePaste.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.png"
 ICONSET_DIR="$BUILD_DIR/AppIcon.iconset"
@@ -32,13 +32,13 @@ iconutil -c icns "$ICONSET_DIR" -o "$BUILD_DIR/AppIcon.icns"
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
-cp ".build/apple/Products/Release/Paste" "$CONTENTS_DIR/MacOS/Paste"
+cp ".build/apple/Products/Release/MePaste" "$CONTENTS_DIR/MacOS/MePaste"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$BUILD_DIR/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
 rm -rf "$ICONSET_DIR"
 
 codesign --force --deep --sign - "$APP_DIR"
-ARCHITECTURES="$(lipo -archs "$CONTENTS_DIR/MacOS/Paste")"
+ARCHITECTURES="$(lipo -archs "$CONTENTS_DIR/MacOS/MePaste")"
 if [[ "$ARCHITECTURES" != *"arm64"* || "$ARCHITECTURES" != *"x86_64"* ]]; then
     echo "Universal binary validation failed: $ARCHITECTURES" >&2
     exit 1

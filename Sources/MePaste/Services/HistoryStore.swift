@@ -11,7 +11,7 @@ actor HistoryStore {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first!
-        directoryURL = applicationSupport.appendingPathComponent("Paste", isDirectory: true)
+        directoryURL = applicationSupport.appendingPathComponent("MePaste", isDirectory: true)
         indexURL = directoryURL.appendingPathComponent("history.json")
 
         encoder = JSONEncoder()

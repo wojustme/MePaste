@@ -4,8 +4,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
-APP_PATH="$BUILD_DIR/Paste.app"
-DMG_PATH="$BUILD_DIR/Paste.dmg"
+APP_PATH="$BUILD_DIR/MePaste.app"
+DMG_PATH="$BUILD_DIR/MePaste.dmg"
 STAGING_DIR="$BUILD_DIR/dmg"
 
 if [[ ! -d "$APP_PATH" ]]; then
@@ -15,11 +15,11 @@ fi
 rm -rf "$STAGING_DIR" "$DMG_PATH"
 mkdir -p "$STAGING_DIR"
 
-cp -R "$APP_PATH" "$STAGING_DIR/Paste.app"
+cp -R "$APP_PATH" "$STAGING_DIR/MePaste.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 
 hdiutil create \
-    -volname "Paste" \
+    -volname "MePaste" \
     -srcfolder "$STAGING_DIR" \
     -ov \
     -format UDZO \

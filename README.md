@@ -21,30 +21,30 @@
 ## 开发运行
 
 ```bash
-swift run Paste
+swift run MePaste
 ```
 
 ## 打包应用
 
 ```bash
 ./scripts/build-app.sh
-open build/Paste.app
+open build/MePaste.app
 ```
 
-打包产物同时包含 `arm64` 和 `x86_64` 架构。建议将 `Paste.app` 移至 `/Applications` 后，再在设置中启用“登录时自动启动”。
+打包产物同时包含 `arm64` 和 `x86_64` 架构。建议将 `MePaste.app` 移至 `/Applications` 后，再在设置中启用“登录时自动启动”。
 
 ## 打包 DMG
 
 ```bash
 ./scripts/build-dmg.sh
-open build/Paste.dmg
+open build/MePaste.dmg
 ```
 
-DMG 中包含 `Paste.app` 和 `/Applications` 快捷入口。
+DMG 中包含 `MePaste.app` 和 `/Applications` 快捷入口。
 
 ## Homebrew 安装与发布
 
-发布版将通过个人 Tap 分发，避免与 Homebrew/core 中已有的 `paste` 软件包重名。
+发布版将通过个人 Tap 分发。
 
 用户安装：
 
@@ -62,19 +62,19 @@ brew install --cask wojustme/tap/mepaste
    git push origin v0.1.0
    ```
 
-   GitHub Actions 会构建 `Paste-v0.1.0.dmg`、计算 SHA-256，并创建对应的 GitHub Release。
+   GitHub Actions 会构建 `MePaste-v0.1.0.dmg`、计算 SHA-256，并创建对应的 GitHub Release。
 3. 检出（首次创建即可）个人 Tap 仓库：
 
    ```bash
    git clone git@github.com:wojustme/homebrew-tap.git ../homebrew-tap
    ```
 
-4. 从 Release 工作流日志或 Release 附件 `Paste-v0.1.0.dmg.sha256` 取得哈希值，并更新 cask：
+4. 从 Release 工作流日志或 Release 附件 `MePaste-v0.1.0.dmg.sha256` 取得哈希值，并更新 cask：
 
    ```bash
    ./scripts/update-homebrew-cask.sh \
      --version 0.1.0 \
-     --sha256 <Paste-v0.1.0.dmg 的 SHA-256> \
+     --sha256 <MePaste-v0.1.0.dmg 的 SHA-256> \
      --tap-dir ../homebrew-tap
 
    brew audit --cask --strict ../homebrew-tap/Casks/mepaste.rb
@@ -91,4 +91,4 @@ brew install --cask wojustme/tap/mepaste
 
 应用图标源文件为 `Resources/AppIcon.png`，打包时会自动生成 macOS 多尺寸 `AppIcon.icns`。
 
-应用数据保存在 `~/Library/Application Support/Paste/history.json`。
+应用数据保存在 `~/Library/Application Support/MePaste/history.json`。

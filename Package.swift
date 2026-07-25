@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "Paste",
+    name: "MePaste",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "Paste", targets: ["Paste"])
+        .executable(name: "MePaste", targets: ["MePaste"])
     ],
     targets: [
         .executableTarget(
-            name: "Paste",
-            path: "Sources/Paste",
+            name: "MePaste",
+            path: "Sources/MePaste",
             linkerSettings: [
                 .linkedFramework("Carbon")
             ]

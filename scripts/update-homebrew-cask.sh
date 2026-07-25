@@ -15,7 +15,7 @@ Usage:
 
 Generate the mepaste Homebrew cask in a checked-out wojustme/homebrew-tap repository.
 The release asset must be available at:
-  https://github.com/wojustme/MePaste/releases/download/v<version>/Paste-v<version>.dmg
+  https://github.com/wojustme/MePaste/releases/download/v<version>/MePaste-v<version>.dmg
 EOF
 }
 
@@ -81,14 +81,14 @@ cask "mepaste" do
   version "$VERSION"
   sha256 "$SHA256"
 
-  url "https://github.com/$REPOSITORY/releases/download/v#{version}/Paste-v#{version}.dmg"
-  name "Paste"
+  url "https://github.com/$REPOSITORY/releases/download/v#{version}/MePaste-v#{version}.dmg"
+  name "MePaste"
   desc "Native macOS clipboard history manager"
   homepage "https://github.com/$REPOSITORY"
 
   depends_on macos: ">= :ventura"
 
-  app "Paste.app"
+  app "MePaste.app"
 end
 EOF
 
