@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Build and distribution artifacts
+build/
+dist/
+*.app
+*.dmg
+*.pkg
+*.dSYM/
+*.xcarchive
+
+# Local signing and provisioning files
+*.cer
+*.p12
+*.mobileprovision
+*.provisionprofile
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~
+.env
+.env.*
+
+# IDEs
+.idea/
+.vscode/
