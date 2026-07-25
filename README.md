@@ -54,36 +54,36 @@ brew install --cask wojustme/tap/mepaste
 
 维护者发布一个版本：
 
-1. 更新 `Resources/Info.plist` 中的 `CFBundleShortVersionString` 和 `CFBundleVersion`，例如 `0.1.0` 和 `1`。
+1. 更新 `Resources/Info.plist` 中的 `CFBundleShortVersionString` 和 `CFBundleVersion`，例如 `0.0.1` 和 `1`。
 2. 创建并推送同名 Git tag：
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.0.1
+   git push origin v0.0.1
    ```
 
-   GitHub Actions 会构建 `MePaste-v0.1.0.dmg`、计算 SHA-256，并创建对应的 GitHub Release。
+   GitHub Actions 会构建 `MePaste-v0.0.1.dmg`、计算 SHA-256，并创建对应的 GitHub Release。
 3. 检出（首次创建即可）个人 Tap 仓库：
 
    ```bash
    git clone git@github.com:wojustme/homebrew-tap.git ../homebrew-tap
    ```
 
-4. 从 Release 工作流日志或 Release 附件 `MePaste-v0.1.0.dmg.sha256` 取得哈希值，并更新 cask：
+4. 从 Release 工作流日志或 Release 附件 `MePaste-v0.0.1.dmg.sha256` 取得哈希值，并更新 cask：
 
    ```bash
    ./scripts/update-homebrew-cask.sh \
-     --version 0.1.0 \
-     --sha256 <MePaste-v0.1.0.dmg 的 SHA-256> \
+     --version 0.0.1 \
+     --sha256 <MePaste-v0.0.1.dmg 的 SHA-256> \
      --tap-dir ../homebrew-tap
 
    brew audit --cask --strict ../homebrew-tap/Casks/mepaste.rb
    git -C ../homebrew-tap add Casks/mepaste.rb
-   git -C ../homebrew-tap commit -m "mepaste 0.1.0"
+   git -C ../homebrew-tap commit -m "mepaste 0.0.1"
    git -C ../homebrew-tap push
    ```
 
-对于尚未推送 tag 的本地验收，可执行 `./scripts/prepare-release.sh 0.1.0`，发布文件和校验和将生成在 `build/release/`。
+对于尚未推送 tag 的本地验收，可执行 `./scripts/prepare-release.sh 0.0.1`，发布文件和校验和将生成在 `build/release/`。
 
 ## 许可证
 
