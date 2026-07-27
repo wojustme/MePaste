@@ -1,0 +1,25 @@
+Resources/Info.plist
+  s_abad6157a8364c::t_352aec3df3771f 20,22
+Sources/MePaste/App/HistoryPanelController.swift
+  s_abad6157a8364c::t_9806edb12e705c 2,81-87,90,103,106,109,112,134-149
+docs/releases/v0.0.3.md
+  s_abad6157a8364c::t_b81333e5491bb8 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5bef09625bff9878a6ff8d687ef1b93230998f51",
+  "prompts": {},
+  "sessions": {
+    "s_abad6157a8364c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa11f-9445-7e82-b81f-4f250a5b03cf",
+        "model": "unknown"
+      },
+      "human_author": "xurenhe <xurenhe@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
