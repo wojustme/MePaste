@@ -8,6 +8,7 @@
 
 - 监听并保存文本、图片、富文本、文件 URL 等剪贴板格式
 - 使用 `⇧⌘V` 在任意应用中打开历史面板
+- 在历史面板中搜索文本、文件名和剪贴板类型
 - 横向滚动、左右方向键切换，点击或按 Return 恢复记录
 - 按最长保留天数和最大记录数两个维度自动清理
 - 菜单栏常驻，可进入设置或退出
@@ -54,36 +55,37 @@ brew install --cask wojustme/tap/mepaste
 
 维护者发布一个版本：
 
-1. 更新 `Resources/Info.plist` 中的 `CFBundleShortVersionString` 和 `CFBundleVersion`，例如 `0.0.1` 和 `1`。
-2. 创建并推送同名 Git tag：
+1. 更新 `Resources/Info.plist` 中的 `CFBundleShortVersionString` 和 `CFBundleVersion`，例如 `0.0.2` 和 `2`。
+2. 在 `docs/releases/` 中新增对应 tag 的发布说明，例如 `docs/releases/v0.0.2.md`。
+3. 创建并推送同名 Git tag：
 
    ```bash
-   git tag v0.0.1
-   git push origin v0.0.1
+   git tag v0.0.2
+   git push origin v0.0.2
    ```
 
-   GitHub Actions 会构建 `MePaste-v0.0.1.dmg`、计算 SHA-256，并创建对应的 GitHub Release。
-3. 检出（首次创建即可）个人 Tap 仓库：
+   GitHub Actions 会构建 `MePaste-v0.0.2.dmg`、计算 SHA-256，并创建对应的 GitHub Release。
+4. 检出（首次创建即可）个人 Tap 仓库：
 
    ```bash
    git clone git@github.com:wojustme/homebrew-tap.git ../homebrew-tap
    ```
 
-4. 从 Release 工作流日志或 Release 附件 `MePaste-v0.0.1.dmg.sha256` 取得哈希值，并更新 cask：
+5. 从 Release 工作流日志或 Release 附件 `MePaste-v0.0.2.dmg.sha256` 取得哈希值，并更新 cask：
 
    ```bash
    ./scripts/update-homebrew-cask.sh \
-     --version 0.0.1 \
-     --sha256 <MePaste-v0.0.1.dmg 的 SHA-256> \
+     --version 0.0.2 \
+     --sha256 <MePaste-v0.0.2.dmg 的 SHA-256> \
      --tap-dir ../homebrew-tap
 
    brew audit --cask --strict ../homebrew-tap/Casks/mepaste.rb
    git -C ../homebrew-tap add Casks/mepaste.rb
-   git -C ../homebrew-tap commit -m "mepaste 0.0.1"
+   git -C ../homebrew-tap commit -m "mepaste 0.0.2"
    git -C ../homebrew-tap push
    ```
 
-对于尚未推送 tag 的本地验收，可执行 `./scripts/prepare-release.sh 0.0.1`，发布文件和校验和将生成在 `build/release/`。
+对于尚未推送 tag 的本地验收，可执行 `./scripts/prepare-release.sh 0.0.2`，发布文件和校验和将生成在 `build/release/`。
 
 ## 许可证
 
