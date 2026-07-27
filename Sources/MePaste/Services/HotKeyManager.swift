@@ -49,7 +49,7 @@ final class HotKeyManager {
                 let manager = Unmanaged<HotKeyManager>
                     .fromOpaque(userData)
                     .takeUnretainedValue()
-                MainActor.assumeIsolated {
+                Task { @MainActor in
                     manager.onPressed?()
                 }
                 return noErr

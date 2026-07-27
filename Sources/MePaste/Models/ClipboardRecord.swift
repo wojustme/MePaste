@@ -89,6 +89,26 @@ struct ClipboardRecord: Codable, Identifiable, Hashable {
         payloads.first { $0.type == type.rawValue }?.data
     }
 
+    func matchesSearch(_ query: String) -> Bool {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return true }
+
+        let searchableText = [
+            title,
+            subtitle,
+            plainText,
+            fileURLs.map(\.lastPathComponent).joined(separator: " "),
+            payloads.map(\.type).joined(separator: " ")
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+
+        return searchableText.range(
+            of: normalizedQuery,
+            options: [.caseInsensitive, .diacriticInsensitive]
+        ) != nil
+    }
+
     func hasSameContent(as other: ClipboardRecord) -> Bool {
         Set(payloads) == Set(other.payloads)
     }
@@ -102,10 +122,14 @@ enum ClipboardKind: String {
 
     var symbolName: String {
         switch self {
-        case .text: "text.alignleft"
-        case .image: "photo"
-        case .files: "doc.on.doc"
-        case .other: "clipboard"
+        case .text:
+            return "text.alignleft"
+        case .image:
+            return "photo"
+        case .files:
+            return "doc.on.doc"
+        case .other:
+            return "clipboard"
         }
     }
 }

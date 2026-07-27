@@ -5,6 +5,11 @@ import Foundation
 final class AppModel: ObservableObject {
     @Published private(set) var records: [ClipboardRecord] = []
     @Published var selectedRecordID: ClipboardRecord.ID?
+    @Published var searchText = "" {
+        didSet {
+            updateSelectionForFilteredRecords()
+        }
+    }
     @Published var maximumRecordCount: Int {
         didSet {
             UserDefaults.standard.set(maximumRecordCount, forKey: Keys.maximumRecordCount)
@@ -26,6 +31,16 @@ final class AppModel: ObservableObject {
     private weak var panelController: HistoryPanelController?
     private weak var hotKeyManager: HotKeyManager?
     private var saveTask: Task<Void, Never>?
+
+    var filteredRecords: [ClipboardRecord] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return records }
+        return records.filter { $0.matchesSearch(query) }
+    }
+
+    var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     init() {
         let defaults = UserDefaults.standard
@@ -80,7 +95,7 @@ final class AppModel: ObservableObject {
         if panelController?.isVisible == true {
             panelController?.hide()
         } else {
-            selectedRecordID = records.first?.id
+            selectedRecordID = filteredRecords.first?.id
             panelController?.show()
         }
     }
@@ -93,7 +108,7 @@ final class AppModel: ObservableObject {
     func delete(_ record: ClipboardRecord) {
         records.removeAll { $0.id == record.id }
         if selectedRecordID == record.id {
-            selectedRecordID = records.first?.id
+            selectedRecordID = filteredRecords.first?.id
         }
         scheduleSave()
     }
@@ -105,16 +120,17 @@ final class AppModel: ObservableObject {
     }
 
     func moveSelection(by offset: Int) {
-        guard !records.isEmpty else { return }
+        let visibleRecords = filteredRecords
+        guard !visibleRecords.isEmpty else { return }
         let currentIndex = selectedRecordID
-            .flatMap { id in records.firstIndex { $0.id == id } } ?? 0
-        let targetIndex = min(max(currentIndex + offset, 0), records.count - 1)
-        selectedRecordID = records[targetIndex].id
+            .flatMap { id in visibleRecords.firstIndex { $0.id == id } } ?? 0
+        let targetIndex = min(max(currentIndex + offset, 0), visibleRecords.count - 1)
+        selectedRecordID = visibleRecords[targetIndex].id
     }
 
     func selectCurrentRecord() {
         guard let selectedRecordID,
-              let record = records.first(where: { $0.id == selectedRecordID })
+              let record = filteredRecords.first(where: { $0.id == selectedRecordID })
         else { return }
         select(record)
     }
@@ -128,7 +144,11 @@ final class AppModel: ObservableObject {
             records.remove(at: existingIndex)
         }
         records.insert(record, at: 0)
-        selectedRecordID = record.id
+        if record.matchesSearch(searchText) {
+            selectedRecordID = record.id
+        } else {
+            updateSelectionForFilteredRecords()
+        }
         applyRetentionPolicy()
     }
 
@@ -144,11 +164,17 @@ final class AppModel: ObservableObject {
         if policy.maximumRecordCount > 0, records.count > policy.maximumRecordCount {
             records = Array(records.prefix(policy.maximumRecordCount))
         }
-        if let selectedRecordID,
-           !records.contains(where: { $0.id == selectedRecordID }) {
-            self.selectedRecordID = records.first?.id
-        }
+        updateSelectionForFilteredRecords()
         scheduleSave()
+    }
+
+    private func updateSelectionForFilteredRecords() {
+        let visibleRecords = filteredRecords
+        if let selectedRecordID,
+           visibleRecords.contains(where: { $0.id == selectedRecordID }) {
+            return
+        }
+        selectedRecordID = visibleRecords.first?.id
     }
 
     private func scheduleSave() {

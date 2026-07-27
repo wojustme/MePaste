@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct SettingsView: View {
     @ObservedObject var model: AppModel
 
@@ -77,6 +78,7 @@ struct SettingsView: View {
     }
 }
 
+@MainActor
 private struct LaunchAtLoginSettings: View {
     @ObservedObject var manager: LaunchAtLoginManager
 

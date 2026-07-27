@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
+@MainActor
 struct MePasteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 

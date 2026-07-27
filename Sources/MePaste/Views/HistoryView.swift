@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct HistoryView: View {
     @ObservedObject var model: AppModel
 
@@ -23,16 +24,47 @@ struct HistoryView: View {
         HStack {
             Label("MePaste", systemImage: "clipboard.fill")
                 .font(.headline)
-            Text("\(model.records.count) 条记录")
+            Text(recordCountText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            searchField
             Text("点击或使用 ← →，按 Return 复制")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20)
         .frame(height: 52)
+    }
+
+    private var recordCountText: String {
+        if model.isSearching {
+            return "\(model.filteredRecords.count)/\(model.records.count) 条记录"
+        }
+        return "\(model.records.count) 条记录"
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("搜索历史", text: $model.searchText)
+                .textFieldStyle(.plain)
+            if model.isSearching {
+                Button {
+                    model.searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 10)
+        .frame(width: 240, height: 28)
+        .background(Color.primary.opacity(0.07))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     @ViewBuilder
@@ -49,11 +81,23 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.filteredRecords.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 38))
+                    .foregroundStyle(.secondary)
+                Text("没有匹配结果")
+                    .font(.headline)
+                Text("换个关键词试试")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 14) {
-                        ForEach(model.records) { record in
+                        ForEach(model.filteredRecords) { record in
                             ClipboardCard(
                                 record: record,
                                 isSelected: model.selectedRecordID == record.id,
