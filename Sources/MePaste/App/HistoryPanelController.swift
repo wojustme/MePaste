@@ -71,7 +71,11 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
 
-            if self.panel.firstResponder is NSTextView {
+            if let textView = self.panel.firstResponder as? NSTextView {
+                if textView.hasMarkedText() {
+                    return event
+                }
+
                 switch event.keyCode {
                 case 36:
                     self.model?.selectCurrentRecord()
