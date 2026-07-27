@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import SwiftUI
 
 @MainActor
@@ -77,10 +78,16 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
                 }
 
                 switch event.keyCode {
-                case 36:
+                case KeyCode.leftArrow where event.hasOnlyNavigationModifiers:
+                    self.model?.moveSelection(by: -1)
+                    return nil
+                case KeyCode.rightArrow where event.hasOnlyNavigationModifiers:
+                    self.model?.moveSelection(by: 1)
+                    return nil
+                case KeyCode.returnKey:
                     self.model?.selectCurrentRecord()
                     return nil
-                case 53:
+                case KeyCode.escape:
                     if self.model?.isSearching == true {
                         self.model?.searchText = ""
                     } else {
@@ -93,16 +100,16 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
             }
 
             switch event.keyCode {
-            case 123:
+            case KeyCode.leftArrow:
                 self.model?.moveSelection(by: -1)
                 return nil
-            case 124:
+            case KeyCode.rightArrow:
                 self.model?.moveSelection(by: 1)
                 return nil
-            case 36:
+            case KeyCode.returnKey:
                 self.model?.selectCurrentRecord()
                 return nil
-            case 53:
+            case KeyCode.escape:
                 self.hide()
                 return nil
             default:
@@ -122,5 +129,21 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
 private final class HistoryPanel: NSPanel {
     override var canBecomeKey: Bool {
         true
+    }
+}
+
+private enum KeyCode {
+    static let leftArrow = UInt16(kVK_LeftArrow)
+    static let rightArrow = UInt16(kVK_RightArrow)
+    static let returnKey = UInt16(kVK_Return)
+    static let escape = UInt16(kVK_Escape)
+}
+
+private extension NSEvent {
+    var hasOnlyNavigationModifiers: Bool {
+        modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
+            .isEmpty
     }
 }
