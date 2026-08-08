@@ -93,7 +93,7 @@ final class AppModel: ObservableObject {
 
     func toggleHistory() {
         if panelController?.isVisible == true {
-            panelController?.hide()
+            panelController?.dismiss()
         } else {
             selectedRecordID = filteredRecords.first?.id
             panelController?.show()
@@ -102,7 +102,7 @@ final class AppModel: ObservableObject {
 
     func select(_ record: ClipboardRecord) {
         clipboardMonitor.write(record)
-        panelController?.hide()
+        panelController?.dismiss()
     }
 
     func delete(_ record: ClipboardRecord) {
@@ -136,7 +136,7 @@ final class AppModel: ObservableObject {
     }
 
     func hideHistory() {
-        panelController?.hide()
+        panelController?.dismiss()
     }
 
     private func insert(_ record: ClipboardRecord) {

@@ -7,6 +7,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
     private let panel: HistoryPanel
     private weak var model: AppModel?
     private var localEventMonitor: Any?
+    private var previousApp: NSRunningApplication?
 
     var isVisible: Bool {
         panel.isVisible
@@ -33,18 +34,41 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        // Remember which app was frontmost so we can hand focus back to it
+        // after the user picks a record (or dismisses the panel).
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            previousApp = frontmost
+        }
+
         positionPanel()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         installKeyboardMonitor()
     }
 
+    /// Hide the panel and return focus to whichever app was frontmost before
+    /// MePaste appeared, so the user lands back where they were.
+    func dismiss() {
+        let appToRestore = previousApp
+        previousApp = nil
+        hide()
+        guard let appToRestore else { return }
+        if #available(macOS 14.0, *) {
+            appToRestore.activate()
+        } else {
+            appToRestore.activate(options: [])
+        }
+    }
+
     func hide() {
+        previousApp = nil
         panel.orderOut(nil)
         removeKeyboardMonitor()
     }
 
     func windowDidResignKey(_ notification: Notification) {
+        // The user clicked into another app; let macOS keep focus there.
         hide()
     }
 
@@ -91,7 +115,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
                     if self.model?.isSearching == true {
                         self.model?.searchText = ""
                     } else {
-                        self.hide()
+                        self.dismiss()
                     }
                     return nil
                 default:
@@ -110,7 +134,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
                 self.model?.selectCurrentRecord()
                 return nil
             case KeyCode.escape:
-                self.hide()
+                self.dismiss()
                 return nil
             default:
                 return event
