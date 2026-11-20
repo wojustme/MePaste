@@ -7,6 +7,27 @@ final class AppModel: ObservableObject {
     @Published private(set) var filteredRecords: [ClipboardRecord] = []
     @Published private(set) var isFiltering = false
     @Published var selectedRecordID: ClipboardRecord.ID?
+    @Published var historyScope: HistoryScope = .all {
+        didSet {
+            guard historyScope != oldValue else { return }
+            refreshFilteredRecords()
+        }
+    }
+    @Published var pasteToActiveApplication: Bool {
+        didSet {
+            defaults.set(pasteToActiveApplication, forKey: Keys.pasteToActiveApplication)
+            if !pasteToActiveApplication { directPasteService.cancelPendingPaste() }
+        }
+    }
+    @Published var isCapturePaused: Bool {
+        didSet {
+            defaults.set(isCapturePaused, forKey: Keys.isCapturePaused)
+            clipboardMonitor.isPaused = isCapturePaused
+        }
+    }
+    @Published private(set) var excludedApplications: [ExcludedApplication]
+    @Published private(set) var isAccessibilityTrusted = false
+    @Published private(set) var actionErrorMessage: String?
     @Published var searchText = "" {
         didSet {
             let query = ClipboardSearchQuery(searchText)
@@ -37,28 +58,43 @@ final class AppModel: ObservableObject {
     private let defaults: UserDefaults
     private let historyStore: HistoryStore
     private let historySearch = HistorySearch()
-    private weak var panelController: HistoryPanelController?
+    private let directPasteService: DirectPasteService
+    private weak var panelController: (any HistoryPanelControlling)?
     private weak var hotKeyManager: HotKeyManager?
     private var searchQuery = ClipboardSearchQuery("")
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
+    private var saveRevision = 0
+    private var persistedRevision = 0
 
     var isSearching: Bool { !searchQuery.isEmpty }
+    var favoriteCount: Int { records.lazy.filter(\.isFavorite).count }
+    var ordinaryRecordCount: Int { records.count - favoriteCount }
+    var canPasteDirectly: Bool { pasteToActiveApplication && isAccessibilityTrusted }
 
     init(
         defaults: UserDefaults = .standard,
         historyStore: HistoryStore = HistoryStore(),
-        clipboardMonitor: ClipboardMonitor = ClipboardMonitor()
+        clipboardMonitor: ClipboardMonitor = ClipboardMonitor(),
+        directPasteService: DirectPasteService = DirectPasteService()
     ) {
         self.defaults = defaults
         self.historyStore = historyStore
         self.clipboardMonitor = clipboardMonitor
+        self.directPasteService = directPasteService
         maximumRecordCount = defaults.object(forKey: Keys.maximumRecordCount) as? Int
             ?? RetentionPolicy.default.maximumRecordCount
         maximumAgeDays = defaults.object(forKey: Keys.maximumAgeDays) as? Int
             ?? RetentionPolicy.default.maximumAgeDays
         hotKey = Self.loadHotKey(from: defaults)
+        pasteToActiveApplication = defaults.object(forKey: Keys.pasteToActiveApplication) as? Bool ?? true
+        isCapturePaused = defaults.bool(forKey: Keys.isCapturePaused)
+        excludedApplications = defaults.data(forKey: Keys.excludedApplications)
+            .flatMap { try? JSONDecoder().decode([ExcludedApplication].self, from: $0) } ?? []
+        clipboardMonitor.isPaused = isCapturePaused
+        clipboardMonitor.excludedApplicationBundleIdentifiers = Set(excludedApplications.map(\.bundleIdentifier))
+        isAccessibilityTrusted = directPasteService.isAuthorized
 
         clipboardMonitor.onNewRecord = { [weak self] record in
             self?.insert(record)
@@ -67,6 +103,41 @@ final class AppModel: ObservableObject {
 
     func attach(hotKeyManager: HotKeyManager) {
         self.hotKeyManager = hotKeyManager
+    }
+
+    func attach(panelController: any HistoryPanelControlling) {
+        self.panelController = panelController
+    }
+
+    func refreshAccessibilityPermission() {
+        let trusted = directPasteService.isAuthorized
+        if isAccessibilityTrusted != trusted { isAccessibilityTrusted = trusted }
+    }
+
+    func requestAccessibilityPermission() {
+        directPasteService.requestPermission()
+        refreshAccessibilityPermission()
+    }
+
+    func excludeApplication(_ application: ExcludedApplication) {
+        guard !application.bundleIdentifier.isEmpty,
+              !excludedApplications.contains(where: { $0.id == application.id })
+        else { return }
+        excludedApplications.append(application)
+        excludedApplications.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        saveExcludedApplications()
+    }
+
+    func removeExcludedApplication(_ application: ExcludedApplication) {
+        excludedApplications.removeAll { $0.id == application.id }
+        saveExcludedApplications()
+    }
+
+    private func saveExcludedApplications() {
+        clipboardMonitor.excludedApplicationBundleIdentifiers = Set(excludedApplications.map(\.bundleIdentifier))
+        if let data = try? JSONEncoder().encode(excludedApplications) {
+            defaults.set(data, forKey: Keys.excludedApplications)
+        }
     }
 
     func updateHotKey(_ newHotKey: HotKey) {
@@ -87,8 +158,8 @@ final class AppModel: ObservableObject {
         updateHotKey(.default)
     }
 
-    func start(panelController: HistoryPanelController) {
-        self.panelController = panelController
+    func start(panelController: any HistoryPanelControlling) {
+        attach(panelController: panelController)
         guard loadTask == nil else { return }
 
         loadTask = Task { [weak self, historyStore] in
@@ -110,6 +181,7 @@ final class AppModel: ObservableObject {
     }
 
     func stop() {
+        directPasteService.cancelPendingPaste()
         clipboardMonitor.stop()
         loadTask?.cancel()
         searchTask?.cancel()
@@ -117,6 +189,8 @@ final class AppModel: ObservableObject {
     }
 
     func toggleHistory() {
+        directPasteService.cancelPendingPaste()
+        actionErrorMessage = nil
         if panelController?.isVisible == true {
             panelController?.dismiss()
         } else {
@@ -125,9 +199,35 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func select(_ record: ClipboardRecord) {
-        clipboardMonitor.write(record)
-        panelController?.dismiss()
+    func select(_ record: ClipboardRecord, asPlainText: Bool = false, copyOnly: Bool = false) {
+        directPasteService.cancelPendingPaste()
+        actionErrorMessage = nil
+        guard !isFiltering, let currentRecord = records.first(where: { $0.id == record.id }) else { return }
+        guard !asPlainText || currentRecord.plainTextForPasting != nil else {
+            actionErrorMessage = "无法将此内容转换为纯文本，剪贴板未更改。"
+            return
+        }
+        guard clipboardMonitor.write(currentRecord, asPlainText: asPlainText) else {
+            actionErrorMessage = "无法写入剪贴板，请重试。"
+            return
+        }
+
+        let expectedChangeCount = clipboardMonitor.changeCount
+        refreshAccessibilityPermission()
+        let target = panelController?.dismiss()
+        guard !copyOnly, canPasteDirectly, let target else { return }
+        directPasteService.paste(to: target) { [weak clipboardMonitor] in
+            clipboardMonitor?.changeCount == expectedChangeCount
+        }
+    }
+
+    func toggleFavorite(_ record: ClipboardRecord) {
+        guard let index = records.firstIndex(where: { $0.id == record.id }) else { return }
+        var updatedRecords = records
+        updatedRecords[index].isFavorite.toggle()
+        records = retainedRecords(updatedRecords)
+        refreshFilteredRecords(preferredSelection: record.id)
+        scheduleSave()
     }
 
     func delete(_ record: ClipboardRecord) {
@@ -139,9 +239,10 @@ final class AppModel: ObservableObject {
         scheduleSave()
     }
 
-    func clearHistory() {
-        guard !records.isEmpty else { return }
-        records = []
+    func clearHistory(includeFavorites: Bool = false) {
+        let remaining = includeFavorites ? [] : records.filter(\.isFavorite)
+        guard remaining.count != records.count else { return }
+        records = remaining
         refreshFilteredRecords()
         scheduleSave()
     }
@@ -154,22 +255,32 @@ final class AppModel: ObservableObject {
         setSelection(filteredRecords[targetIndex].id)
     }
 
-    func selectCurrentRecord() {
+    func selectCurrentRecord(asPlainText: Bool = false) {
         guard !isFiltering, let selectedRecordID,
               let record = filteredRecords.first(where: { $0.id == selectedRecordID })
         else { return }
-        select(record)
+        select(record, asPlainText: asPlainText)
+    }
+
+    func quickPaste(number: Int, asPlainText: Bool = false) {
+        guard !isFiltering, (1...9).contains(number), number <= filteredRecords.count else { return }
+        let record = filteredRecords[number - 1]
+        setSelection(record.id)
+        select(record, asPlainText: asPlainText)
     }
 
     func hideHistory() {
+        directPasteService.cancelPendingPaste()
         panelController?.dismiss()
     }
 
     private func insert(_ record: ClipboardRecord) {
+        var record = record
         var updatedRecords = records
         if let existingIndex = updatedRecords.firstIndex(where: { $0.hasSameContent(as: record) }) {
             // Background preparation may finish after a more recent copy.
             guard updatedRecords[existingIndex].createdAt <= record.createdAt else { return }
+            record.isFavorite = record.isFavorite || updatedRecords[existingIndex].isFavorite
             updatedRecords.remove(at: existingIndex)
         }
         let insertionIndex = updatedRecords.firstIndex { $0.createdAt < record.createdAt }
@@ -185,14 +296,15 @@ final class AppModel: ObservableObject {
             maximumRecordCount: maximumRecordCount,
             maximumAgeDays: maximumAgeDays
         )
-        var retained = records
-        if let cutoffDate = policy.cutoffDate {
-            retained.removeAll { $0.createdAt < cutoffDate }
+        let cutoffDate = policy.cutoffDate
+        var ordinaryCount = 0
+        return records.filter { record in
+            if record.isFavorite { return true }
+            if let cutoffDate, record.createdAt < cutoffDate { return false }
+            if policy.maximumRecordCount > 0, ordinaryCount >= policy.maximumRecordCount { return false }
+            ordinaryCount += 1
+            return true
         }
-        if policy.maximumRecordCount > 0, retained.count > policy.maximumRecordCount {
-            retained = Array(retained.prefix(policy.maximumRecordCount))
-        }
-        return retained
     }
 
     private func applyRetentionPolicy() {
@@ -207,14 +319,14 @@ final class AppModel: ObservableObject {
         searchTask?.cancel()
         let previousSelection = selectedRecordID
         let selection = preferredSelection ?? previousSelection
-        guard !searchQuery.isEmpty, !records.isEmpty else {
+        let snapshot = historyScope == .favorites ? records.filter(\.isFavorite) : records
+        guard !searchQuery.isEmpty, !snapshot.isEmpty else {
             isFiltering = false
-            filteredRecords = records
+            filteredRecords = snapshot
             updateSelection(preferred: selection, fallback: previousSelection)
             return
         }
 
-        let snapshot = records
         let query = searchQuery
         // Never allow Return to copy an old result while a new query is in flight.
         isFiltering = true
@@ -251,18 +363,31 @@ final class AppModel: ObservableObject {
 
     private func scheduleSave() {
         saveTask?.cancel()
+        saveRevision += 1
+        let revision = saveRevision
         let snapshot = records
-        saveTask = Task { [historyStore] in
+        saveTask = Task { [weak self, historyStore] in
             do {
                 try await Task.sleep(for: .milliseconds(250))
                 try Task.checkCancellation()
                 try await historyStore.save(snapshot)
+                if let self { self.persistedRevision = max(self.persistedRevision, revision) }
             } catch is CancellationError {
                 // A newer snapshot superseded this save.
             } catch {
                 NSLog("Failed to save clipboard history: \(error)")
             }
         }
+    }
+
+    /// A quit immediately after favoriting/copying must not lose the debounced save.
+    /// Call after stop() on termination; tests can flush their isolated store too.
+    func flushPendingHistory() async throws {
+        saveTask?.cancel()
+        guard persistedRevision != saveRevision else { return }
+        let revision = saveRevision
+        try await historyStore.save(records)
+        persistedRevision = max(persistedRevision, revision)
     }
 
     private static func loadHotKey(from defaults: UserDefaults) -> HotKey {
@@ -279,4 +404,7 @@ private enum Keys {
     static let maximumRecordCount = "retention.maximumRecordCount"
     static let maximumAgeDays = "retention.maximumAgeDays"
     static let hotKey = "shortcut.showHistory"
+    static let pasteToActiveApplication = "paste.toActiveApplication"
+    static let isCapturePaused = "privacy.isCapturePaused"
+    static let excludedApplications = "privacy.excludedApplications"
 }

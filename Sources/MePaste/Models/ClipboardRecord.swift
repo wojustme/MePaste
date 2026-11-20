@@ -15,10 +15,12 @@ struct ClipboardRecord: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     let createdAt: Date
     let payloads: [ClipboardPayload]
+    var isFavorite: Bool
 
     // Records are immutable. Build presentation/search data once, off the main actor,
     // rather than decoding payloads every time SwiftUI evaluates a card or a filter.
     let plainText: String?
+    let plainTextForPasting: String?
     let fileURLs: [URL]
     let imageData: Data?
     let kind: ClipboardKind
@@ -28,13 +30,21 @@ struct ClipboardRecord: Codable, Identifiable, Hashable, Sendable {
     let isPreviewTruncated: Bool
     private let searchableText: String
 
-    init(id: UUID = UUID(), createdAt: Date = Date(), payloads: [ClipboardPayload]) {
+    init(
+        id: UUID = UUID(),
+        createdAt: Date = Date(),
+        payloads: [ClipboardPayload],
+        isFavorite: Bool = false
+    ) {
         self.id = id
         self.createdAt = createdAt
         self.payloads = payloads
+        self.isFavorite = isFavorite
 
-        let plainText = payloads.first { $0.type == NSPasteboard.PasteboardType.string.rawValue }
-            .flatMap { String(data: $0.data, encoding: .utf8) }
+        let plainTextForPasting = ClipboardTextDecoder.plainText(from: payloads)
+        let plainText = plainTextForPasting
+            ?? payloads.first { $0.type == NSPasteboard.PasteboardType.string.rawValue }
+                .flatMap { String(data: $0.data, encoding: .utf8) }
         let fileURLs = payloads
             .filter { $0.type == NSPasteboard.PasteboardType.fileURL.rawValue }
             .compactMap { String(data: $0.data, encoding: .utf8) }
@@ -44,6 +54,7 @@ struct ClipboardRecord: Codable, Identifiable, Hashable, Sendable {
         let characterCount = plainText?.count ?? 0
 
         self.plainText = plainText
+        self.plainTextForPasting = plainTextForPasting
         self.fileURLs = fileURLs
         imageData = image?.data
         isPreviewTruncated = characterCount > Self.previewCharacterLimit
@@ -83,9 +94,10 @@ struct ClipboardRecord: Codable, Identifiable, Hashable, Sendable {
         ].joined(separator: " "))
     }
 
-    // Keep the existing history.json schema; none of the derived caches belong on disk.
+    // Favoriting is additive metadata. Old records decode as ordinary history;
+    // presentation/search caches still never belong on disk.
     private enum CodingKeys: String, CodingKey {
-        case id, createdAt, payloads
+        case id, createdAt, payloads, isFavorite
     }
 
     init(from decoder: any Decoder) throws {
@@ -93,18 +105,31 @@ struct ClipboardRecord: Codable, Identifiable, Hashable, Sendable {
         self.init(
             id: try container.decode(UUID.self, forKey: .id),
             createdAt: try container.decode(Date.self, forKey: .createdAt),
-            payloads: try container.decode([ClipboardPayload].self, forKey: .payloads)
+            payloads: try container.decode([ClipboardPayload].self, forKey: .payloads),
+            isFavorite: try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         )
     }
 
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(payloads, forKey: .payloads)
+        if isFavorite {
+            try container.encode(true, forKey: .isFavorite)
+        }
+    }
+
     static func == (lhs: ClipboardRecord, rhs: ClipboardRecord) -> Bool {
-        lhs.id == rhs.id && lhs.createdAt == rhs.createdAt && lhs.payloads == rhs.payloads
+        lhs.id == rhs.id && lhs.createdAt == rhs.createdAt
+            && lhs.payloads == rhs.payloads && lhs.isFavorite == rhs.isFavorite
     }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(createdAt)
         hasher.combine(payloads)
+        hasher.combine(isFavorite)
     }
 
     func payload(for type: NSPasteboard.PasteboardType) -> Data? {

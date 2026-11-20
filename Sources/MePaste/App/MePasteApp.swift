@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @main
@@ -22,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var showHistoryMenuItem: NSMenuItem?
     private var recordCountMenuItem: NSMenuItem?
     private var launchAtLoginMenuItem: NSMenuItem?
+    private var pauseCaptureMenuItem: NSMenuItem?
+    private var pauseStateSubscription: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -44,6 +47,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyManager?.invalidate()
         model.stop()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        hotKeyManager?.invalidate()
+        model.stop()
+        Task {
+            do {
+                try await model.flushPendingHistory()
+            } catch {
+                NSLog("Failed to save clipboard history before quitting: \(error)")
+            }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     private func installStatusItem() {
@@ -74,6 +91,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recordCountMenuItem = recordCountItem
         menu.addItem(.separator())
 
+        let pauseItem = NSMenuItem(
+            title: "暂停记录剪贴板",
+            action: #selector(toggleCapturePaused),
+            keyEquivalent: ""
+        )
+        pauseItem.target = self
+        menu.addItem(pauseItem)
+        pauseCaptureMenuItem = pauseItem
+
         let launchItem = NSMenuItem(
             title: "登录时自动启动",
             action: #selector(toggleLaunchAtLogin),
@@ -84,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchAtLoginMenuItem = launchItem
 
         let settingsItem = NSMenuItem(
-            title: "设置快捷键与历史容量…",
+            title: "设置…",
             action: #selector(showSettings),
             keyEquivalent: ","
         )
@@ -110,12 +136,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         item.menu = menu
         statusItem = item
+        pauseStateSubscription = model.$isCapturePaused.sink { [weak self] paused in
+            self?.statusItem?.button?.image = NSImage(
+                systemSymbolName: paused ? "pause.rectangle" : "clipboard",
+                accessibilityDescription: paused ? "MePaste（已暂停记录）" : "MePaste"
+            )
+            self?.statusItem?.button?.toolTip = paused ? "MePaste · 已暂停记录" : "MePaste"
+            self?.pauseCaptureMenuItem?.title = paused ? "恢复记录剪贴板" : "暂停记录剪贴板"
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         model.launchAtLoginManager.refresh()
         showHistoryMenuItem?.title = "显示剪贴板历史  \(model.hotKey.displayName)"
-        recordCountMenuItem?.title = "已保存 \(model.records.count) 条记录"
+        recordCountMenuItem?.title = "已保存 \(model.records.count) 条记录 · \(model.favoriteCount) 条收藏"
         launchAtLoginMenuItem?.state = model.launchAtLoginManager.isEnabled ? .on : .off
     }
 
@@ -132,6 +166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleLaunchAtLogin() {
         model.launchAtLoginManager.setEnabled(!model.launchAtLoginManager.isEnabled)
         launchAtLoginMenuItem?.state = model.launchAtLoginManager.isEnabled ? .on : .off
+    }
+
+    @objc private func toggleCapturePaused() {
+        model.isCapturePaused.toggle()
     }
 
     @objc private func quit() {

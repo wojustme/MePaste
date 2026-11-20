@@ -1,9 +1,15 @@
 import AppKit
-import Carbon
 import SwiftUI
 
 @MainActor
-final class HistoryPanelController: NSObject, NSWindowDelegate {
+protocol HistoryPanelControlling: AnyObject {
+    var isVisible: Bool { get }
+    func show()
+    @discardableResult func dismiss() -> pid_t?
+}
+
+@MainActor
+final class HistoryPanelController: NSObject, NSWindowDelegate, HistoryPanelControlling {
     private let panel: HistoryPanel
     private weak var model: AppModel?
     private var localEventMonitor: Any?
@@ -34,6 +40,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
 
     func show() {
         guard let model else { return }
+        model.refreshAccessibilityPermission()
         // Remember which app was frontmost so we can hand focus back to it
         // after the user picks a record (or dismisses the panel).
         let frontmost = NSWorkspace.shared.frontmostApplication
@@ -46,23 +53,30 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         // The panel owns its fixed geometry; avoid SwiftUI's intrinsic-size probes.
         hostingView.sizingOptions = []
         panel.contentView = hostingView
-        NSApp.activate(ignoringOtherApps: true)
+        // This is a nonactivating panel: take keyboard focus without racing an
+        // asynchronous application activation or bringing Settings forward.
         panel.makeKeyAndOrderFront(nil)
         installKeyboardMonitor()
     }
 
     /// Hide the panel and return focus to whichever app was frontmost before
     /// MePaste appeared, so the user lands back where they were.
-    func dismiss() {
+    @discardableResult
+    func dismiss() -> pid_t? {
         let appToRestore = previousApp
         previousApp = nil
         hide()
-        guard let appToRestore else { return }
+        guard let appToRestore, !appToRestore.isTerminated,
+              appToRestore.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else { return nil }
+        guard !appToRestore.isActive else { return appToRestore.processIdentifier }
         if #available(macOS 14.0, *) {
+            NSApp.yieldActivation(to: appToRestore)
             appToRestore.activate()
         } else {
             appToRestore.activate(options: [])
         }
+        return appToRestore.processIdentifier
     }
 
     func hide() {
@@ -102,51 +116,29 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
     private func installKeyboardMonitor() {
         guard localEventMonitor == nil else { return }
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
+            guard let self, self.panel.isKeyWindow, event.window === self.panel else { return event }
+            let isComposing = (self.panel.firstResponder as? NSTextView)?.hasMarkedText() == true
+            guard let action = HistoryKeyboardAction.resolve(
+                keyCode: event.keyCode,
+                modifiers: event.modifierFlags,
+                isComposing: isComposing
+            ) else { return event }
 
-            if let textView = self.panel.firstResponder as? NSTextView {
-                if textView.hasMarkedText() {
-                    return event
-                }
-
-                switch event.keyCode {
-                case KeyCode.leftArrow where event.hasOnlyNavigationModifiers:
-                    self.model?.moveSelection(by: -1)
-                    return nil
-                case KeyCode.rightArrow where event.hasOnlyNavigationModifiers:
-                    self.model?.moveSelection(by: 1)
-                    return nil
-                case KeyCode.returnKey:
-                    self.model?.selectCurrentRecord()
-                    return nil
-                case KeyCode.escape:
-                    if self.model?.isSearching == true {
-                        self.model?.searchText = ""
-                    } else {
-                        self.dismiss()
-                    }
-                    return nil
-                default:
-                    return event
+            switch action {
+            case .moveSelection(let offset):
+                self.model?.moveSelection(by: offset)
+            case .useSelection(let asPlainText):
+                self.model?.selectCurrentRecord(asPlainText: asPlainText)
+            case .quickPaste(let number, let asPlainText):
+                self.model?.quickPaste(number: number, asPlainText: asPlainText)
+            case .escape:
+                if self.model?.isSearching == true {
+                    self.model?.searchText = ""
+                } else {
+                    self.model?.hideHistory()
                 }
             }
-
-            switch event.keyCode {
-            case KeyCode.leftArrow:
-                self.model?.moveSelection(by: -1)
-                return nil
-            case KeyCode.rightArrow:
-                self.model?.moveSelection(by: 1)
-                return nil
-            case KeyCode.returnKey:
-                self.model?.selectCurrentRecord()
-                return nil
-            case KeyCode.escape:
-                self.dismiss()
-                return nil
-            default:
-                return event
-            }
+            return nil
         }
     }
 
@@ -161,21 +153,5 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
 private final class HistoryPanel: NSPanel {
     override var canBecomeKey: Bool {
         true
-    }
-}
-
-private enum KeyCode {
-    static let leftArrow = UInt16(kVK_LeftArrow)
-    static let rightArrow = UInt16(kVK_RightArrow)
-    static let returnKey = UInt16(kVK_Return)
-    static let escape = UInt16(kVK_Escape)
-}
-
-private extension NSEvent {
-    var hasOnlyNavigationModifiers: Bool {
-        modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-            .isEmpty
     }
 }

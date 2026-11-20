@@ -45,17 +45,22 @@ final class ModelFixture {
     let model: AppModel
     let pasteboard: NSPasteboard
     let directory: URL
+    let store: HistoryStore
     private let suiteName = "MePasteTests.\(UUID().uuidString)"
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
 
-    init() {
+    init(directPasteService: DirectPasteService = DirectPasteService(
+        authorizationCheck: { false }, permissionRequest: {}
+    )) {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        store = HistoryStore(directoryURL: directory)
         pasteboard = NSPasteboard.withUniqueName()
         defaults = UserDefaults(suiteName: suiteName)!
         model = AppModel(
             defaults: defaults,
-            historyStore: HistoryStore(directoryURL: directory),
-            clipboardMonitor: ClipboardMonitor(pasteboard: pasteboard)
+            historyStore: store,
+            clipboardMonitor: ClipboardMonitor(pasteboard: pasteboard, frontmostApplicationIdentifier: { nil }),
+            directPasteService: directPasteService
         )
     }
 
@@ -68,5 +73,50 @@ final class ModelFixture {
         pasteboard.releaseGlobally()
         defaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+@MainActor
+final class TestHistoryPanel: HistoryPanelControlling {
+    var isVisible = true
+    var targetProcessIdentifier: pid_t? = 42
+    private(set) var dismissCount = 0
+
+    func show() { isVisible = true }
+
+    @discardableResult
+    func dismiss() -> pid_t? {
+        dismissCount += 1
+        isVisible = false
+        return targetProcessIdentifier
+    }
+}
+
+@MainActor
+final class DirectPasteFixture {
+    var isAuthorized = true
+    var frontmostPID: pid_t? = 42
+    var releasedModifiers = true
+    var clipboardUnchanged = true
+    var postedPIDs: [pid_t] = []
+    var permissionRequests = 0
+    var focusChecks = 0
+
+    lazy var service = DirectPasteService(
+        authorizationCheck: { [weak self] in self?.isAuthorized == true },
+        permissionRequest: { [weak self] in self?.permissionRequests += 1 },
+        frontmostProcessIdentifier: { [weak self] in
+            self?.focusChecks += 1
+            return self?.frontmostPID
+        },
+        modifiersReleased: { [weak self] in self?.releasedModifiers == true },
+        postPaste: { [weak self] pid in self?.postedPIDs.append(pid) },
+        ownProcessIdentifier: 7,
+        retryDelay: .milliseconds(2),
+        maximumAttempts: 500
+    )
+
+    func paste(to pid: pid_t = 42) {
+        service.paste(to: pid) { [weak self] in self?.clipboardUnchanged == true }
     }
 }
