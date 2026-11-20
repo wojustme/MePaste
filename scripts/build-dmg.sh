@@ -8,9 +8,9 @@ APP_PATH="$BUILD_DIR/MePaste.app"
 DMG_PATH="$BUILD_DIR/MePaste.dmg"
 STAGING_DIR="$BUILD_DIR/dmg"
 
-if [[ ! -d "$APP_PATH" ]]; then
-    "$ROOT_DIR/scripts/build-app.sh"
-fi
+# Always rebuild so an existing local/release bundle cannot leak the wrong
+# commit or release version into this disk image. SwiftPM builds incrementally.
+"$ROOT_DIR/scripts/build-app.sh"
 
 rm -rf "$STAGING_DIR" "$DMG_PATH"
 mkdir -p "$STAGING_DIR"

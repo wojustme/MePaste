@@ -32,8 +32,19 @@ jobs:
             exit 1
           fi
 
+      - name: Run regression tests
+        run: swift test
+
       - name: Build release assets
         run: ./scripts/prepare-release.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Verify packaged release version
+        run: |
+          release_version=$(/usr/libexec/PlistBuddy -c 'Print :MePasteReleaseVersion' build/MePaste.app/Contents/Info.plist)
+          if [[ "$release_version" != "$GITHUB_REF_NAME" ]]; then
+            echo "Packaged version ($release_version) must match release tag ($GITHUB_REF_NAME)." >&2
+            exit 1
+          fi
 
       - name: Prepare release notes
         run: |

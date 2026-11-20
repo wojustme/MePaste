@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyManager?.invalidate()
-        model.clipboardMonitor.stop()
+        model.stop()
     }
 
     private func installStatusItem() {
@@ -91,6 +91,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
         menu.addItem(.separator())
+
+        let versionItem = NSMenuItem(
+            title: "版本 \(AppVersion.current)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
 
         let quitItem = NSMenuItem(
             title: "退出 MePaste",

@@ -30,10 +30,10 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
-        panel.contentView = NSHostingView(rootView: HistoryView(model: model))
     }
 
     func show() {
+        guard let model else { return }
         // Remember which app was frontmost so we can hand focus back to it
         // after the user picks a record (or dismisses the panel).
         let frontmost = NSWorkspace.shared.frontmostApplication
@@ -42,6 +42,10 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         }
 
         positionPanel()
+        let hostingView = NSHostingView(rootView: HistoryView(model: model))
+        // The panel owns its fixed geometry; avoid SwiftUI's intrinsic-size probes.
+        hostingView.sizingOptions = []
+        panel.contentView = hostingView
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         installKeyboardMonitor()
@@ -65,6 +69,10 @@ final class HistoryPanelController: NSObject, NSWindowDelegate {
         previousApp = nil
         panel.orderOut(nil)
         removeKeyboardMonitor()
+        panel.makeFirstResponder(nil)
+        // Hidden hosting views still observe the model. Release the entire tree,
+        // including card tasks and date/animation updates, until the next show.
+        panel.contentView = nil
     }
 
     func windowDidResignKey(_ notification: Notification) {

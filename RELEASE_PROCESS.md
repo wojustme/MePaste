@@ -27,12 +27,20 @@ For a new version such as `v0.0.4`, update:
 
 The GitHub Actions release workflow reads `docs/releases/${tag}.md` and uses it as the Release body.
 
+The menu version is stamped separately from the build configuration:
+
+- Local builds, including optimized APP/DMG builds, display `dev-<short commit ID>`.
+- GitHub Actions tag builds display the exact release tag (for example, `v0.0.4`) via `MePasteReleaseVersion` in the packaged `Info.plist`.
+- The tag must equal `v` plus `CFBundleShortVersionString`. Both packaging and CI verify this before publication.
+- SwiftPM embeds the commit at build time, so a moved/installed local binary does not depend on the source checkout or Git at runtime.
+
 ## 3. Validate Locally
 
 Run a build before committing:
 
 ```bash
 swift build
+swift test
 ```
 
 If SwiftPM reports stale module cache paths, run:
@@ -47,6 +55,8 @@ For GUI behavior changes, also launch and manually verify:
 ```bash
 swift run MePaste
 ```
+
+For local packaging verification, run `./scripts/build-dmg.sh`. It rebuilds the app before packaging instead of reusing an old bundle. `./scripts/prepare-release.sh` also uses this path; an explicit version argument must match `Info.plist`. A local release rehearsal still displays a development version in the menu.
 
 ## 4. Stage and Commit
 

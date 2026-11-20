@@ -12,11 +12,12 @@ MePaste is a native macOS Swift app built with Swift Package Manager. Source cod
 - `scripts/` contains packaging and release helpers.
 - `docs/releases/` stores per-tag GitHub Release notes.
 
-There is currently no dedicated test target.
+Regression tests live in `Tests/MePasteTests/` and run through the SwiftPM `MePasteTests` target.
 
 ## Build, Test, and Development Commands
 
 - `swift build` builds the debug executable and catches compile errors.
+- `swift test` runs the automated regression tests using isolated temporary data and pasteboards.
 - `swift run MePaste` builds and launches the local app.
 - `swift package clean` clears SwiftPM build artifacts when module caches become stale.
 - `./scripts/build-app.sh` creates a Universal 2 `.app` bundle in `build/`.
@@ -31,7 +32,7 @@ Use Swift 6 style with 4-space indentation. Keep UI code in `Views/`, app coordi
 
 ## Testing Guidelines
 
-No automated tests are configured yet. For changes, run `swift build` at minimum. Manually verify user-facing behavior with `swift run MePaste`, especially global hot keys, clipboard writes, search, keyboard navigation, focus restoration, and settings persistence. If adding tests, create a SwiftPM test target and name tests by behavior, for example `testMoveSelectionSkipsOutsideFilteredRecords`.
+For changes, run `swift build` and `swift test` at minimum. Tests cover search, selection, retention, clipboard formats, history compatibility, thumbnail caching, and build-version metadata. Manually verify user-facing behavior with `swift run MePaste`, especially global hot keys, clipboard writes, search, keyboard navigation, focus restoration, and settings persistence. Add tests to the existing SwiftPM test target and name them by behavior, for example `testMoveSelectionSkipsOutsideFilteredRecords`.
 
 ## Commit & Pull Request Guidelines
 

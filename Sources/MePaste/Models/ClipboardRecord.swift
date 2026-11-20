@@ -1,88 +1,110 @@
 import AppKit
 import Foundation
+import ImageIO
 
-struct ClipboardPayload: Codable, Hashable {
+struct ClipboardPayload: Codable, Hashable, Sendable {
     let itemIndex: Int
     let type: String
     let data: Data
 }
 
-struct ClipboardRecord: Codable, Identifiable, Hashable {
+struct ClipboardRecord: Codable, Identifiable, Hashable, Sendable {
+    static let previewCharacterLimit = 2_000
+    private static let titleCharacterLimit = 160
+
     let id: UUID
     let createdAt: Date
     let payloads: [ClipboardPayload]
+
+    // Records are immutable. Build presentation/search data once, off the main actor,
+    // rather than decoding payloads every time SwiftUI evaluates a card or a filter.
+    let plainText: String?
+    let fileURLs: [URL]
+    let imageData: Data?
+    let kind: ClipboardKind
+    let title: String
+    let subtitle: String
+    let previewText: String?
+    let isPreviewTruncated: Bool
+    private let searchableText: String
 
     init(id: UUID = UUID(), createdAt: Date = Date(), payloads: [ClipboardPayload]) {
         self.id = id
         self.createdAt = createdAt
         self.payloads = payloads
-    }
 
-    var plainText: String? {
-        payload(for: .string).flatMap { String(data: $0, encoding: .utf8) }
-    }
-
-    var fileURLs: [URL] {
-        payloads
+        let plainText = payloads.first { $0.type == NSPasteboard.PasteboardType.string.rawValue }
+            .flatMap { String(data: $0.data, encoding: .utf8) }
+        let fileURLs = payloads
             .filter { $0.type == NSPasteboard.PasteboardType.fileURL.rawValue }
             .compactMap { String(data: $0.data, encoding: .utf8) }
             .compactMap(URL.init(string:))
-    }
+        let image = Self.imageMetadata(in: payloads)
+        let fileNames = fileURLs.map(\.lastPathComponent)
+        let characterCount = plainText?.count ?? 0
 
-    var image: NSImage? {
-        let preferredTypes: [NSPasteboard.PasteboardType] = [.png, .tiff]
-        for type in preferredTypes {
-            if let data = payload(for: type), let image = NSImage(data: data) {
-                return image
-            }
+        self.plainText = plainText
+        self.fileURLs = fileURLs
+        imageData = image?.data
+        isPreviewTruncated = characterCount > Self.previewCharacterLimit
+        previewText = plainText.map {
+            characterCount > Self.previewCharacterLimit
+                ? String($0.prefix(Self.previewCharacterLimit)) + "…"
+                : $0
         }
-        return nil
-    }
 
-    var kind: ClipboardKind {
-        if image != nil {
-            return .image
-        }
-        if !fileURLs.isEmpty {
-            return .files
-        }
-        if plainText != nil {
-            return .text
-        }
-        return .other
-    }
-
-    var title: String {
-        switch kind {
-        case .text:
-            return plainText?
+        if let image {
+            kind = .image
+            title = "图片"
+            subtitle = "\(image.width) × \(image.height)"
+        } else if !fileURLs.isEmpty {
+            kind = .files
+            title = Self.abbreviated(fileNames.joined(separator: ", "))
+            subtitle = "\(fileURLs.count) 个文件"
+        } else if let plainText {
+            kind = .text
+            let firstLine = plainText
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(whereSeparator: \.isNewline)
-                .first
-                .map(String.init)
-                .flatMap { $0.isEmpty ? nil : $0 } ?? "空文本"
-        case .image:
-            return "图片"
-        case .files:
-            let names = fileURLs.map(\.lastPathComponent)
-            return names.isEmpty ? "文件" : names.joined(separator: ", ")
-        case .other:
-            return "其他内容"
+                .prefix { !$0.isNewline }
+            title = firstLine.isEmpty ? "空文本" : Self.abbreviated(String(firstLine))
+            subtitle = "\(characterCount) 个字符"
+        } else {
+            kind = .other
+            title = "其他内容"
+            subtitle = Self.abbreviated(payloads.map(\.type).joined(separator: ", "))
         }
+
+        searchableText = ClipboardSearchQuery.fold([
+            title,
+            subtitle,
+            plainText ?? "",
+            fileNames.joined(separator: " "),
+            payloads.map(\.type).joined(separator: " ")
+        ].joined(separator: " "))
     }
 
-    var subtitle: String {
-        switch kind {
-        case .text:
-            return "\(plainText?.count ?? 0) 个字符"
-        case .image:
-            guard let size = image?.size else { return "图片" }
-            return "\(Int(size.width)) × \(Int(size.height))"
-        case .files:
-            return "\(fileURLs.count) 个文件"
-        case .other:
-            return payloads.map(\.type).joined(separator: ", ")
-        }
+    // Keep the existing history.json schema; none of the derived caches belong on disk.
+    private enum CodingKeys: String, CodingKey {
+        case id, createdAt, payloads
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            createdAt: try container.decode(Date.self, forKey: .createdAt),
+            payloads: try container.decode([ClipboardPayload].self, forKey: .payloads)
+        )
+    }
+
+    static func == (lhs: ClipboardRecord, rhs: ClipboardRecord) -> Bool {
+        lhs.id == rhs.id && lhs.createdAt == rhs.createdAt && lhs.payloads == rhs.payloads
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(createdAt)
+        hasher.combine(payloads)
     }
 
     func payload(for type: NSPasteboard.PasteboardType) -> Data? {
@@ -90,31 +112,58 @@ struct ClipboardRecord: Codable, Identifiable, Hashable {
     }
 
     func matchesSearch(_ query: String) -> Bool {
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedQuery.isEmpty else { return true }
+        matchesSearch(ClipboardSearchQuery(query))
+    }
 
-        let searchableText = [
-            title,
-            subtitle,
-            plainText,
-            fileURLs.map(\.lastPathComponent).joined(separator: " "),
-            payloads.map(\.type).joined(separator: " ")
-        ]
-        .compactMap { $0 }
-        .joined(separator: " ")
-
-        return searchableText.range(
-            of: normalizedQuery,
-            options: [.caseInsensitive, .diacriticInsensitive]
-        ) != nil
+    func matchesSearch(_ query: ClipboardSearchQuery) -> Bool {
+        query.isEmpty || searchableText.contains(query.text)
     }
 
     func hasSameContent(as other: ClipboardRecord) -> Bool {
-        Set(payloads) == Set(other.payloads)
+        payloads == other.payloads || Set(payloads) == Set(other.payloads)
+    }
+
+    private static func abbreviated(_ text: String) -> String {
+        let prefix = text.prefix(titleCharacterLimit)
+        return prefix.endIndex == text.endIndex ? text : String(prefix) + "…"
+    }
+
+    private static func imageMetadata(
+        in payloads: [ClipboardPayload]
+    ) -> (data: Data, width: Int, height: Int)? {
+        for type in [NSPasteboard.PasteboardType.png, .tiff] {
+            guard let data = payloads.first(where: { $0.type == type.rawValue })?.data,
+                  let source = CGImageSourceCreateWithData(
+                    data as CFData,
+                    [kCGImageSourceShouldCache: false] as CFDictionary
+                  ),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                    as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  width > 0, height > 0
+            else { continue }
+            return (data, width, height)
+        }
+        return nil
     }
 }
 
-enum ClipboardKind: String {
+struct ClipboardSearchQuery: Equatable, Sendable {
+    let text: String
+
+    init(_ text: String) {
+        self.text = Self.fold(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    var isEmpty: Bool { text.isEmpty }
+
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+}
+
+enum ClipboardKind: String, Sendable {
     case text
     case image
     case files

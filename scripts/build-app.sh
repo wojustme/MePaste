@@ -8,9 +8,15 @@ APP_DIR="$BUILD_DIR/MePaste.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 ICON_SOURCE="$ROOT_DIR/Resources/AppIcon.png"
 ICONSET_DIR="$BUILD_DIR/AppIcon.iconset"
+RELEASE_VERSION="$("$ROOT_DIR/scripts/release-version.sh" "$ROOT_DIR/Resources/Info.plist")"
 
 cd "$ROOT_DIR"
-swift build -c release --arch arm64 --arch x86_64
+# Native SwiftPM builds run the version-generation plugin for each architecture.
+# Combine the binaries ourselves instead of the multi-arch Xcode build path.
+swift build -c release --arch arm64 --build-system native
+swift build -c release --arch x86_64 --build-system native
+ARM64_BIN_DIR="$(swift build -c release --arch arm64 --build-system native --show-bin-path)"
+X86_64_BIN_DIR="$(swift build -c release --arch x86_64 --build-system native --show-bin-path)"
 
 if [[ ! -f "$ICON_SOURCE" ]]; then
     swift "$ROOT_DIR/scripts/generate-icon.swift" "$ICON_SOURCE"
@@ -32,8 +38,12 @@ iconutil -c icns "$ICONSET_DIR" -o "$BUILD_DIR/AppIcon.icns"
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
-cp ".build/apple/Products/Release/MePaste" "$CONTENTS_DIR/MacOS/MePaste"
+lipo -create "$ARM64_BIN_DIR/MePaste" "$X86_64_BIN_DIR/MePaste" \
+    -output "$CONTENTS_DIR/MacOS/MePaste"
 cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
+if [[ -n "$RELEASE_VERSION" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :MePasteReleaseVersion string $RELEASE_VERSION" "$CONTENTS_DIR/Info.plist"
+fi
 cp "$BUILD_DIR/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
 rm -rf "$ICONSET_DIR"
 

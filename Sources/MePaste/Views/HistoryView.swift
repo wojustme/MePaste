@@ -81,6 +81,9 @@ struct HistoryView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.isFiltering {
+            ProgressView("正在搜索…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.filteredRecords.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "magnifyingglass")
@@ -145,6 +148,7 @@ private struct ClipboardCard: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
+    @State private var thumbnail: CGImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -158,7 +162,10 @@ private struct ClipboardCard: View {
                 Label(record.subtitle, systemImage: record.kind.symbolName)
                     .lineLimit(1)
                 Spacer()
-                Text(record.createdAt, style: .relative)
+                // A resolved string does not install a per-card live date timer.
+                Text(record.createdAt.formatted(.relative(presentation: .numeric)))
+                    .lineLimit(1)
+                    .help(record.createdAt.formatted())
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -171,6 +178,12 @@ private struct ClipboardCard: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(isSelected ? Color.accentColor : .white.opacity(0.12), lineWidth: 2)
         }
+        .task(id: record.id) {
+            guard record.kind == .image else { return }
+            let image = await ThumbnailCache.shared.thumbnail(for: record)
+            guard !Task.isCancelled else { return }
+            thumbnail = image
+        }
         .contextMenu {
             Button("复制到剪贴板", action: onSelect)
             Divider()
@@ -180,23 +193,34 @@ private struct ClipboardCard: View {
 
     @ViewBuilder
     private var preview: some View {
-        if let image = record.image {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        } else if let text = record.plainText {
+        if record.kind == .image {
+            if let thumbnail {
+                Image(decorative: thumbnail, scale: 2)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 38))
+                    .foregroundStyle(.secondary)
+            }
+        } else if let text = record.previewText {
             ScrollView {
                 Text(text)
                     .font(.system(size: 12, design: .monospaced))
                     .textSelection(.disabled)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                if record.isPreviewTruncated {
+                    Text("仅显示部分预览，复制时保留全文")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         } else if !record.fileURLs.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "doc.on.doc.fill")
                     .font(.system(size: 38))
-                Text(record.fileURLs.map(\.lastPathComponent).joined(separator: "\n"))
+                Text(record.fileURLs.prefix(3).map(\.lastPathComponent).joined(separator: "\n"))
                     .font(.caption)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)

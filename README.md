@@ -14,7 +14,7 @@
 - 菜单栏常驻，可进入设置或退出
 - 支持登录时自动启动
 - 可在设置中录制并持久化全局快捷键
-- 状态栏菜单可直接查看记录数、切换开机启动及进入容量设置
+- 状态栏菜单可直接查看版本号与记录数、切换开机启动及进入容量设置
 - 历史面板自动适配当前显示器宽度并紧贴屏幕底边
 - 状态栏菜单使用独立设置窗口管理启动项、快捷键和历史容量
 - 打包为同时支持 Apple Silicon 和 Intel 的 Universal 2 应用
@@ -24,6 +24,27 @@
 ```bash
 swift run MePaste
 ```
+
+编译与回归测试：
+
+```bash
+swift build
+swift test
+```
+
+测试使用独立的临时目录、偏好设置和剪贴板，不会修改现有历史或系统剪贴板。
+覆盖搜索取消、键盘选择、容量清理、富文本/多条目恢复、旧数据格式兼容及图片缩略图缓存。
+
+历史搜索在后台执行，并对连续输入进行短暂防抖。卡片只渲染有限长度的文本预览和按需生成的缩略图；复制和搜索仍使用完整内容。关闭历史面板后会释放其视图，不在后台持续刷新隐藏卡片。
+
+## 版本号
+
+菜单底部（“退出 MePaste”上方）会显示当前构建的版本：
+
+- **本地构建**：`dev-<短 commit ID>`，例如 `dev-a79edc7`。适用于 `swift build`、`swift run` 及本地打包的 APP/DMG；即使使用 `-c release` 或检出发布 tag，也仍是开发版。
+- **GitHub Release**：显示完整的发布 tag，例如 `v0.0.4`。打包时校验 tag 与 `CFBundleShortVersionString` 一致，再写入应用元数据；不匹配时构建失败。
+
+Commit ID 由 SwiftPM 构建插件嵌入，增量构建也会跟随 HEAD 更新。安装后的应用不需要 Git 或源码目录，也不会在打开菜单时执行 Git。没有 Git 元数据的源码归档会明确显示 `dev-unknown`。
 
 ## 打包应用
 
@@ -41,7 +62,7 @@ open build/MePaste.app
 open build/MePaste.dmg
 ```
 
-DMG 中包含 `MePaste.app` 和 `/Applications` 快捷入口。
+DMG 中包含 `MePaste.app` 和 `/Applications` 快捷入口。每次打包都会先增量构建应用，避免复用旧版本或错误渠道的 APP。
 
 ## Homebrew 安装与发布
 
@@ -85,7 +106,7 @@ brew install --cask wojustme/tap/mepaste
    git -C ../homebrew-tap push
    ```
 
-对于尚未推送 tag 的本地验收，可执行 `./scripts/prepare-release.sh 0.0.2`，发布文件和校验和将生成在 `build/release/`。
+对于尚未推送 tag 的本地验收，可执行 `./scripts/prepare-release.sh`，使用 `Info.plist` 中的版本命名产物，文件和校验和将生成在 `build/release/`。也可以显式传入相同的版本号；不一致时会报错。本地生成的应用菜单仍显示 `dev-<短 commit ID>`，只有 GitHub tag 发布流程生成的应用显示正式版本。
 
 ## 许可证
 

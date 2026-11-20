@@ -16,7 +16,18 @@ let package = Package(
             path: "Sources/MePaste",
             linkerSettings: [
                 .linkedFramework("Carbon")
+            ],
+            plugins: [
+                .plugin(name: "BuildVersionPlugin")
             ]
+        ),
+        .plugin(
+            name: "BuildVersionPlugin",
+            capability: .buildTool()
+        ),
+        .testTarget(
+            name: "MePasteTests",
+            dependencies: ["MePaste"]
         )
     ]
 )
