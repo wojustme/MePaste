@@ -13,6 +13,9 @@ struct ServiceTests {
         #expect(image.height == ThumbnailCache.maximumPixelSize / 2)
         let second = await cache.thumbnail(for: record)
         #expect(first === second)
+        #expect(cache.cachedThumbnail(for: record.id) === first)
+        cache.evict(ids: [record.id])
+        #expect(cache.cachedThumbnail(for: record.id) == nil)
         #expect(record.imageData == record.payload(for: .png))
     }
 
@@ -60,6 +63,52 @@ struct ServiceTests {
         }
         let results = await HistorySearch().filter(records, matching: ClipboardSearchQuery("needle-499"))
         #expect(results.map(\.id) == [records[499].id])
+    }
+
+    @Test func testHistoryStoreOffloadsLargePayloadsToBlobsAndPrunesOrphans() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directoryURL: directory)
+
+        let largeData = Data(repeating: 0xAB, count: HistoryStore.externalBlobThresholdBytes + 4_096)
+        let largeRecord = ClipboardRecord(payloads: [
+            ClipboardPayload(itemIndex: 0, type: "public.data", data: largeData)
+        ])
+        let smallRecord = textRecord("small inline payload")
+
+        try await store.save([largeRecord, smallRecord])
+
+        let blobsDir = directory.appendingPathComponent("blobs", isDirectory: true)
+        let blobFiles = try FileManager.default.contentsOfDirectory(atPath: blobsDir.path)
+        #expect(blobFiles.count == 1)
+
+        let indexSize = try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("history.json").path
+        )[.size] as? Int ?? 0
+        #expect(indexSize < HistoryStore.externalBlobThresholdBytes)
+
+        let loaded = try await store.load()
+        #expect(loaded == [largeRecord, smallRecord])
+
+        // Removing the large record should garbage-collect its blob file.
+        try await store.save([smallRecord])
+        let remainingBlobs = try FileManager.default.contentsOfDirectory(atPath: blobsDir.path)
+        #expect(remainingBlobs.isEmpty)
+        #expect(try await store.load() == [smallRecord])
+    }
+
+    @Test func testHistoryStoreLoadsLegacyInlineJSONWithoutMigrationErrors() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let legacyRecord = textRecord("legacy inline")
+        let legacyJSON = try JSONEncoder().encode([legacyRecord])
+        try legacyJSON.write(to: directory.appendingPathComponent("history.json"))
+
+        let store = HistoryStore(directoryURL: directory)
+        let loaded = try await store.load()
+        #expect(loaded == [legacyRecord])
     }
 }
 

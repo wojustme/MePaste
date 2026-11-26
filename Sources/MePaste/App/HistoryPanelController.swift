@@ -22,7 +22,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate, HistoryPanelCont
     init(model: AppModel) {
         self.model = model
         panel = HistoryPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 960, height: 340),
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: Self.panelHeight),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -48,15 +48,33 @@ final class HistoryPanelController: NSObject, NSWindowDelegate, HistoryPanelCont
             previousApp = frontmost
         }
 
-        positionPanel()
+        let targetFrame = targetPanelFrame()
         let hostingView = NSHostingView(rootView: HistoryView(model: model))
         // The panel owns its fixed geometry; avoid SwiftUI's intrinsic-size probes.
         hostingView.sizingOptions = []
         panel.contentView = hostingView
+
+        if let targetFrame {
+            var startFrame = targetFrame
+            startFrame.origin.y -= Self.revealOffset
+            panel.setFrame(startFrame, display: false)
+        }
+        panel.alphaValue = 0
         // This is a nonactivating panel: take keyboard focus without racing an
         // asynchronous application activation or bringing Settings forward.
         panel.makeKeyAndOrderFront(nil)
+        panel.invalidateShadow()
         installKeyboardMonitor()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            panel.animator().alphaValue = 1
+            if let targetFrame {
+                panel.animator().setFrame(targetFrame, display: true)
+            }
+        }
     }
 
     /// Hide the panel and return focus to whichever app was frontmost before
@@ -82,6 +100,7 @@ final class HistoryPanelController: NSObject, NSWindowDelegate, HistoryPanelCont
     func hide() {
         previousApp = nil
         panel.orderOut(nil)
+        panel.alphaValue = 1
         removeKeyboardMonitor()
         panel.makeFirstResponder(nil)
         // Hidden hosting views still observe the model. Release the entire tree,
@@ -94,24 +113,26 @@ final class HistoryPanelController: NSObject, NSWindowDelegate, HistoryPanelCont
         hide()
     }
 
-    private func positionPanel() {
+    private func targetPanelFrame() -> NSRect? {
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
             ?? NSScreen.main
             ?? NSScreen.screens.first
-        guard let screenFrame = screen?.frame else { return }
+        guard let screenFrame = screen?.frame else { return nil }
 
-        let height: CGFloat = 340
-        panel.setFrame(
-            NSRect(
-                x: screenFrame.minX,
-                y: screenFrame.minY,
-                width: screenFrame.width,
-                height: height
-            ),
-            display: true
+        let horizontalInset: CGFloat = 14
+        let bottomInset: CGFloat = 12
+        let width = max(640, screenFrame.width - horizontalInset * 2)
+        return NSRect(
+            x: screenFrame.minX + (screenFrame.width - width) / 2,
+            y: screenFrame.minY + bottomInset,
+            width: width,
+            height: Self.panelHeight
         )
     }
+
+    private static let panelHeight: CGFloat = 374
+    private static let revealOffset: CGFloat = 14
 
     private func installKeyboardMonitor() {
         guard localEventMonitor == nil else { return }
@@ -134,6 +155,8 @@ final class HistoryPanelController: NSObject, NSWindowDelegate, HistoryPanelCont
             case .escape:
                 if self.model?.isSearching == true {
                     self.model?.searchText = ""
+                } else if self.model?.kindFilter != nil {
+                    self.model?.kindFilter = nil
                 } else {
                     self.model?.hideHistory()
                 }

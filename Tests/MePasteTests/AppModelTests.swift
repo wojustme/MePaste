@@ -153,4 +153,26 @@ struct AppModelTests {
         #expect(fixture.model.filteredRecords.map(\.id) == fixture.model.records.map(\.id))
         #expect(fixture.model.selectedRecordID == fixture.model.records.first?.id)
     }
+
+    @Test func testKindFilterAndQuickPasteIndexComposeCleanly() throws {
+        let fixture = ModelFixture()
+        defer { fixture.cleanUp() }
+        let text = textRecord("hello")
+        let image = ClipboardRecord(payloads: [try imagePayload()])
+        fixture.insert(text)
+        fixture.insert(image)
+
+        #expect(fixture.model.quickPasteNumber(for: image.id) == 1)
+        #expect(fixture.model.quickPasteNumber(for: text.id) == 2)
+
+        fixture.model.kindFilter = .text
+        #expect(fixture.model.filteredRecords.map(\.id) == [text.id])
+        #expect(fixture.model.quickPasteNumber(for: text.id) == 1)
+        #expect(fixture.model.quickPasteNumber(for: image.id) == nil)
+        #expect(fixture.model.selectedRecordID == text.id)
+
+        fixture.model.kindFilter = .image
+        #expect(fixture.model.filteredRecords.map(\.id) == [image.id])
+        #expect(fixture.model.quickPasteNumber(for: image.id) == 1)
+    }
 }

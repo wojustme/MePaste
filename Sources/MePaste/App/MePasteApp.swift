@@ -32,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let panelController = HistoryPanelController(model: model)
         self.panelController = panelController
         settingsWindowController = SettingsWindowController(model: model)
+        model.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
         model.start(panelController: panelController)
 
         let hotKeyManager = HotKeyManager(hotKey: model.hotKey)

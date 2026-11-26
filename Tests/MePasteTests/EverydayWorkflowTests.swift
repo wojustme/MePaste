@@ -263,4 +263,38 @@ struct EverydayPasteTests {
         fixture.model.select(record)
         #expect(fixture.pasteboard.string(forType: .string) == "unchanged")
     }
+
+    @Test func testSelectingOlderRecordPromotesItToFrontOnReopenAndPersistsOrder() async throws {
+        let fixture = ModelFixture()
+        defer { fixture.cleanUp() }
+        let panel = TestHistoryPanel()
+        fixture.model.attach(panelController: panel)
+
+        let now = Date()
+        let oldest = textRecord("oldest item", createdAt: now.addingTimeInterval(-30))
+        let middle = textRecord("middle item", createdAt: now.addingTimeInterval(-20))
+        let newest = textRecord("newest item", createdAt: now.addingTimeInterval(-10))
+        [oldest, middle, newest].forEach(fixture.insert)
+
+        #expect(fixture.model.records.map(\.id) == [newest.id, middle.id, oldest.id])
+
+        // Select and copy the oldest history item.
+        fixture.model.select(oldest, copyOnly: true)
+        #expect(fixture.pasteboard.string(forType: .string) == "oldest item")
+        #expect(fixture.model.records.map(\.id) == [oldest.id, newest.id, middle.id])
+        #expect(fixture.model.filteredRecords.map(\.id) == [oldest.id, newest.id, middle.id])
+        #expect(fixture.model.quickPasteNumber(for: oldest.id) == 1)
+
+        // Reopening the history panel immediately focuses the previously selected record.
+        fixture.model.toggleHistory()
+        #expect(panel.isVisible)
+        #expect(fixture.model.selectedRecordID == oldest.id)
+        #expect(fixture.model.filteredRecords.first?.id == oldest.id)
+
+        // Order is persisted across relaunch.
+        fixture.model.stop()
+        try await fixture.model.flushPendingHistory()
+        let saved = try await fixture.store.load()
+        #expect(saved.map(\.id) == [oldest.id, newest.id, middle.id])
+    }
 }

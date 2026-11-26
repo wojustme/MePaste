@@ -6,10 +6,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var records: [ClipboardRecord] = []
     @Published private(set) var filteredRecords: [ClipboardRecord] = []
     @Published private(set) var isFiltering = false
+    @Published private(set) var favoriteCount = 0
     @Published var selectedRecordID: ClipboardRecord.ID?
     @Published var historyScope: HistoryScope = .all {
         didSet {
             guard historyScope != oldValue else { return }
+            refreshFilteredRecords()
+        }
+    }
+    @Published var kindFilter: ClipboardKind? = nil {
+        didSet {
+            guard kindFilter != oldValue else { return }
             refreshFilteredRecords()
         }
     }
@@ -55,6 +62,7 @@ final class AppModel: ObservableObject {
 
     let clipboardMonitor: ClipboardMonitor
     let launchAtLoginManager = LaunchAtLoginManager()
+    var onOpenSettings: (() -> Void)?
     private let defaults: UserDefaults
     private let historyStore: HistoryStore
     private let historySearch = HistorySearch()
@@ -62,6 +70,7 @@ final class AppModel: ObservableObject {
     private weak var panelController: (any HistoryPanelControlling)?
     private weak var hotKeyManager: HotKeyManager?
     private var searchQuery = ClipboardSearchQuery("")
+    private var quickPasteIndexByID: [ClipboardRecord.ID: Int] = [:]
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
@@ -69,9 +78,18 @@ final class AppModel: ObservableObject {
     private var persistedRevision = 0
 
     var isSearching: Bool { !searchQuery.isEmpty }
-    var favoriteCount: Int { records.lazy.filter(\.isFavorite).count }
+    var hasActiveFilters: Bool { isSearching || kindFilter != nil }
     var ordinaryRecordCount: Int { records.count - favoriteCount }
     var canPasteDirectly: Bool { pasteToActiveApplication && isAccessibilityTrusted }
+
+    func quickPasteNumber(for id: ClipboardRecord.ID) -> Int? {
+        quickPasteIndexByID[id]
+    }
+
+    func openSettings() {
+        hideHistory()
+        onOpenSettings?()
+    }
 
     init(
         defaults: UserDefaults = .standard,
@@ -166,7 +184,7 @@ final class AppModel: ObservableObject {
             do {
                 let loadedRecords = try await historyStore.load()
                 guard !Task.isCancelled, let self else { return }
-                self.records = self.retainedRecords(loadedRecords)
+                self.setRecords(self.retainedRecords(loadedRecords))
                 self.refreshFilteredRecords()
                 if self.records.count != loadedRecords.count {
                     self.scheduleSave()
@@ -212,6 +230,8 @@ final class AppModel: ObservableObject {
             return
         }
 
+        promoteToMostRecent(currentRecord)
+
         let expectedChangeCount = clipboardMonitor.changeCount
         refreshAccessibilityPermission()
         let target = panelController?.dismiss()
@@ -221,11 +241,41 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Moves a reused history item to the front so reopening MePaste immediately
+    /// surfaces the item that was just selected and copied.
+    private func promoteToMostRecent(_ record: ClipboardRecord) {
+        guard let recordIndex = records.firstIndex(where: { $0.id == record.id }) else { return }
+        let now = Date()
+        let promotedDate: Date
+        if let newest = records.first, newest.id != record.id, newest.createdAt >= now {
+            promotedDate = newest.createdAt.addingTimeInterval(0.001)
+        } else {
+            promotedDate = max(now, records[recordIndex].createdAt)
+        }
+        let promoted = records[recordIndex].touched(at: promotedDate)
+
+        var updatedRecords = records
+        updatedRecords.remove(at: recordIndex)
+        updatedRecords.insert(promoted, at: 0)
+        setRecords(updatedRecords)
+
+        if let filteredIndex = filteredRecords.firstIndex(where: { $0.id == record.id }) {
+            var updatedFiltered = filteredRecords
+            updatedFiltered.remove(at: filteredIndex)
+            updatedFiltered.insert(promoted, at: 0)
+            setFilteredRecords(updatedFiltered)
+        }
+        setSelection(promoted.id)
+        scheduleSave()
+    }
+
     func toggleFavorite(_ record: ClipboardRecord) {
         guard let index = records.firstIndex(where: { $0.id == record.id }) else { return }
         var updatedRecords = records
         updatedRecords[index].isFavorite.toggle()
-        records = retainedRecords(updatedRecords)
+        let retained = retainedRecords(updatedRecords)
+        evictRemovedThumbnails(previous: records, next: retained)
+        setRecords(retained)
         refreshFilteredRecords(preferredSelection: record.id)
         scheduleSave()
     }
@@ -233,8 +283,11 @@ final class AppModel: ObservableObject {
     func delete(_ record: ClipboardRecord) {
         guard let index = records.firstIndex(where: { $0.id == record.id }) else { return }
         var updatedRecords = records
-        updatedRecords.remove(at: index)
-        records = updatedRecords
+        let removed = updatedRecords.remove(at: index)
+        if removed.kind == .image {
+            ThumbnailCache.shared.evict(ids: [removed.id])
+        }
+        setRecords(updatedRecords)
         refreshFilteredRecords()
         scheduleSave()
     }
@@ -242,7 +295,12 @@ final class AppModel: ObservableObject {
     func clearHistory(includeFavorites: Bool = false) {
         let remaining = includeFavorites ? [] : records.filter(\.isFavorite)
         guard remaining.count != records.count else { return }
-        records = remaining
+        if includeFavorites {
+            ThumbnailCache.shared.clear()
+        } else {
+            evictRemovedThumbnails(previous: records, next: remaining)
+        }
+        setRecords(remaining)
         refreshFilteredRecords()
         scheduleSave()
     }
@@ -286,9 +344,39 @@ final class AppModel: ObservableObject {
         let insertionIndex = updatedRecords.firstIndex { $0.createdAt < record.createdAt }
             ?? updatedRecords.endIndex
         updatedRecords.insert(record, at: insertionIndex)
-        records = retainedRecords(updatedRecords)
+        let retained = retainedRecords(updatedRecords)
+        evictRemovedThumbnails(previous: records, next: retained)
+        setRecords(retained)
         refreshFilteredRecords(preferredSelection: insertionIndex == 0 ? record.id : selectedRecordID)
         scheduleSave()
+    }
+
+    private func setRecords(_ newRecords: [ClipboardRecord]) {
+        records = newRecords
+        let newFavoriteCount = newRecords.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) }
+        if favoriteCount != newFavoriteCount {
+            favoriteCount = newFavoriteCount
+        }
+    }
+
+    private func setFilteredRecords(_ newRecords: [ClipboardRecord]) {
+        var topNine: [ClipboardRecord.ID: Int] = [:]
+        topNine.reserveCapacity(min(newRecords.count, 9))
+        for (offset, item) in newRecords.prefix(9).enumerated() {
+            topNine[item.id] = offset + 1
+        }
+        quickPasteIndexByID = topNine
+        filteredRecords = newRecords
+    }
+
+    private func evictRemovedThumbnails(previous: [ClipboardRecord], next: [ClipboardRecord]) {
+        let nextIDs = Set(next.lazy.filter { $0.kind == .image }.map(\.id))
+        let removedImageIDs = previous.compactMap { record -> UUID? in
+            record.kind == .image && !nextIDs.contains(record.id) ? record.id : nil
+        }
+        if !removedImageIDs.isEmpty {
+            ThumbnailCache.shared.evict(ids: removedImageIDs)
+        }
     }
 
     private func retainedRecords(_ records: [ClipboardRecord]) -> [ClipboardRecord] {
@@ -310,7 +398,8 @@ final class AppModel: ObservableObject {
     private func applyRetentionPolicy() {
         let retained = retainedRecords(records)
         guard retained.count != records.count else { return }
-        records = retained
+        evictRemovedThumbnails(previous: records, next: retained)
+        setRecords(retained)
         refreshFilteredRecords()
         scheduleSave()
     }
@@ -319,10 +408,13 @@ final class AppModel: ObservableObject {
         searchTask?.cancel()
         let previousSelection = selectedRecordID
         let selection = preferredSelection ?? previousSelection
-        let snapshot = historyScope == .favorites ? records.filter(\.isFavorite) : records
+        var snapshot = historyScope == .favorites ? records.filter(\.isFavorite) : records
+        if let kindFilter {
+            snapshot = snapshot.filter { $0.kind == kindFilter }
+        }
         guard !searchQuery.isEmpty, !snapshot.isEmpty else {
             isFiltering = false
-            filteredRecords = snapshot
+            setFilteredRecords(snapshot)
             updateSelection(preferred: selection, fallback: previousSelection)
             return
         }
@@ -330,17 +422,17 @@ final class AppModel: ObservableObject {
         let query = searchQuery
         // Never allow Return to copy an old result while a new query is in flight.
         isFiltering = true
-        filteredRecords = []
+        setFilteredRecords([])
         setSelection(nil)
         searchTask = Task { [weak self, historySearch] in
             do {
-                try await Task.sleep(for: .milliseconds(120))
+                try await Task.sleep(for: .milliseconds(80))
             } catch {
                 return
             }
             let matches = await historySearch.filter(snapshot, matching: query)
             guard !Task.isCancelled, let self else { return }
-            self.filteredRecords = matches
+            self.setFilteredRecords(matches)
             self.isFiltering = false
             self.updateSelection(preferred: selection, fallback: previousSelection)
         }

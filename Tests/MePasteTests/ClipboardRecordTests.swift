@@ -91,4 +91,27 @@ struct ClipboardRecordTests {
             ClipboardPayload(itemIndex: 1, type: first.type, data: first.data), second
         ])))
     }
+
+    @Test func testMultiTokenSearchMatchesOutOfOrderTerms() {
+        let record = textRecord("swift build --configuration release")
+        #expect(record.matchesSearch("swift release"))
+        #expect(record.matchesSearch("release swift"))
+        #expect(!record.matchesSearch("swift debug"))
+    }
+
+    @Test func testDetectsWebURLsHexColorsAndCodeSnippets() {
+        let linkRecord = textRecord("https://apple.com/macos")
+        #expect(linkRecord.detectedURL?.host == "apple.com")
+        #expect(linkRecord.detectedColor == nil)
+
+        let colorRecord = textRecord("#3b82f6")
+        #expect(colorRecord.detectedColor?.hex == "#3B82F6")
+        #expect(colorRecord.detectedURL == nil)
+
+        let shortColor = textRecord("#f0a")
+        #expect(shortColor.detectedColor?.hex == "#F0A")
+
+        let codeRecord = textRecord("func greet() -> String { return \"hi\" }")
+        #expect(codeRecord.isCodeLike)
+    }
 }
